@@ -2,14 +2,19 @@
 ;; Micolash Cage — macOS Seatbelt Profile
 ;;
 ;; Enforces filesystem write jail: processes running under this profile
-;; can read anything but can only write to the cage directory and /tmp.
+;; can read anything but can only write to the allowed directories.
 ;;
 ;; Parameters (injected via sandbox-exec -D):
-;;   SANDBOX_ROOT      — the cage directory
-;;   SANDBOX_WORKSPACE — the workspace (git worktree / mounted repo)
+;;   SANDBOX_ROOT      — the cage directory (~/.micolash/cages/<name>)
+;;   SANDBOX_WORKSPACE — the workspace (git worktree)
+;;   GIT_DIR           — the parent repo's .git directory (for worktree ref/object writes)
 ;;
 ;; Usage:
-;;   sandbox-exec -f jail.sb -D SANDBOX_ROOT=/path -D SANDBOX_WORKSPACE=/path /bin/bash
+;;   sandbox-exec -f jail.sb \
+;;     -D SANDBOX_ROOT=/path \
+;;     -D SANDBOX_WORKSPACE=/path \
+;;     -D GIT_DIR=/path/to/repo/.git \
+;;     /bin/bash
 ;;
 
 (version 1)
@@ -36,6 +41,13 @@
 ;; ============================================
 (allow file-write*
     (subpath (param "SANDBOX_WORKSPACE"))
+)
+
+;; ============================================
+;; ALLOW: Writes to parent repo .git (worktree refs, objects, index)
+;; ============================================
+(allow file-write*
+    (subpath (param "GIT_DIR"))
 )
 
 ;; ============================================

@@ -85,6 +85,11 @@ EOF
     [[ -n "$repo" ]] && echo "CAGE_REPO=$repo" >> "$cage_dir/.env"
     [[ -n "$branch" ]] && echo "CAGE_BRANCH=$branch" >> "$cage_dir/.env"
 
+    # Copy host git config so identity, signing, includeIf, etc. work inside the cage
+    if [[ -f "$HOME/.gitconfig" ]]; then
+        cp "$HOME/.gitconfig" "$cage_dir/home/.gitconfig"
+    fi
+
     echo ""
     log_success "Cage '${BOLD}$name${NC}' created"
     echo ""
