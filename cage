@@ -1,0 +1,83 @@
+#!/bin/bash
+# cage — Jailed developer sandbox for autonomous AI agents
+#
+# Creates venv-style sandboxes with macOS Seatbelt (sandbox-exec) enforcement.
+# Processes inside the cage get full permissions but file writes are restricted
+# to the sandbox directory and workspace only.
+#
+# Usage: cage <command> [args...]
+
+set -e
+
+# ============================================
+# BOOTSTRAP
+# ============================================
+
+_cage_script="$0"
+if [ -L "$_cage_script" ]; then
+    _cage_script="$(readlink "$_cage_script")"
+fi
+CAGE_DIR="$(cd "$(dirname "$_cage_script")" && pwd)"
+
+# ============================================
+# SOURCE MODULES
+# ============================================
+
+source "$CAGE_DIR/lib/config.sh"
+source "$CAGE_DIR/lib/helpers.sh"
+source "$CAGE_DIR/lib/infra.sh"
+source "$CAGE_DIR/lib/jail.sh"
+source "$CAGE_DIR/lib/agent.sh"
+source "$CAGE_DIR/lib/sandbox.sh"
+
+# ============================================
+# MAIN ENTRY POINT
+# ============================================
+
+case "${1:-}" in
+    create)
+        shift
+        cage_create "$@"
+        ;;
+    destroy)
+        shift
+        cage_destroy "$@"
+        ;;
+    enter)
+        shift
+        cage_enter "$@"
+        ;;
+    shell)
+        shift
+        cage_shell "$@"
+        ;;
+    exec)
+        shift
+        cage_exec "$@"
+        ;;
+    agent)
+        shift
+        cage_agent "$@"
+        ;;
+    list|ls)
+        cage_list
+        ;;
+    status)
+        shift
+        cage_status "$@"
+        ;;
+    infra)
+        shift
+        cage_infra "$@"
+        ;;
+    setup)
+        cage_setup
+        ;;
+    help|--help|-h)
+        cage_help
+        ;;
+    *)
+        cage_help
+        exit 1
+        ;;
+esac

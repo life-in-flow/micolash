@@ -1,0 +1,56 @@
+;;
+;; Micolash Cage — macOS Seatbelt Profile
+;;
+;; Enforces filesystem write jail: processes running under this profile
+;; can read anything but can only write to the cage directory and /tmp.
+;;
+;; Parameters (injected via sandbox-exec -D):
+;;   SANDBOX_ROOT      — the cage directory
+;;   SANDBOX_WORKSPACE — the workspace (git worktree / mounted repo)
+;;
+;; Usage:
+;;   sandbox-exec -f jail.sb -D SANDBOX_ROOT=/path -D SANDBOX_WORKSPACE=/path /bin/bash
+;;
+
+(version 1)
+
+;; Start by allowing everything, then restrict writes
+(allow default)
+
+;; ============================================
+;; DENY: All file writes globally
+;; ============================================
+(deny file-write*
+    (subpath "/")
+)
+
+;; ============================================
+;; ALLOW: Writes to cage directory
+;; ============================================
+(allow file-write*
+    (subpath (param "SANDBOX_ROOT"))
+)
+
+;; ============================================
+;; ALLOW: Writes to workspace (git worktree)
+;; ============================================
+(allow file-write*
+    (subpath (param "SANDBOX_WORKSPACE"))
+)
+
+;; ============================================
+;; ALLOW: Writes to temp directories
+;; ============================================
+(allow file-write*
+    (subpath "/tmp")
+    (subpath "/private/tmp")
+    (subpath "/private/var/folders")
+    (subpath "/var/folders")
+)
+
+;; ============================================
+;; ALLOW: Writes needed for shell / process operation
+;; ============================================
+(allow file-write*
+    (subpath "/dev")
+)
