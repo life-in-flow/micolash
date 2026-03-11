@@ -1,4 +1,4 @@
-# cage sandbox lifecycle — create, destroy, enter, list, status
+# cage sandbox lifecycle — create, destroy, enter, shell, exec, list, status
 
 # ============================================
 # CREATE
@@ -8,16 +8,12 @@ cage_create() {
     local name=""
     local repo=""
     local branch=""
-    local no_infra=false
-    local infra_profile="default"
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --name|-n)    name="$2"; shift 2 ;;
             --repo|-r)    repo="$2"; shift 2 ;;
             --branch|-b)  branch="$2"; shift 2 ;;
-            --no-infra)   no_infra=true; shift ;;
-            --profile)    infra_profile="$2"; shift 2 ;;
             *)
                 if [[ -z "$name" ]]; then
                     name="$1"; shift
@@ -31,31 +27,31 @@ cage_create() {
 
     if [[ -z "$name" ]]; then
         log_error "Cage name is required"
-        echo "Usage: cage create <name> [--repo <path>] [--branch <branch>] [--no-infra]"
+        echo "Usage: cage create <name> [--repo <path>] [--branch <branch>]"
         exit 1
     fi
 
-    local sandbox_dir="$CAGE_SANDBOX_DIR/$name"
+    local cage_dir="$CAGE_SANDBOX_DIR/$name"
 
-    if [[ -d "$sandbox_dir" ]]; then
-        log_error "Cage '$name' already exists at $sandbox_dir"
+    if [[ -d "$cage_dir" ]]; then
+        log_error "Cage '$name' already exists at $cage_dir"
         log_info "Use 'cage destroy $name' first, or choose a different name."
         exit 1
     fi
 
     log_info "Creating cage: ${BOLD}$name${NC}"
 
-    # ---- Directory structure ----
+    # Directory structure
     log_step "Creating directory structure"
-    mkdir -p "$sandbox_dir"/{home,tools/bin,infra}
+    mkdir -p "$cage_dir"/{home,tools/bin}
 
-    # ---- Workspace (git worktree or repo symlink) ----
-    local workspace_dir="$sandbox_dir/workspace"
+    # Workspace
+    local workspace_dir="$cage_dir/workspace"
 
     if [[ -n "$repo" ]]; then
         repo="$(cd "$repo" 2>/dev/null && pwd)" || {
             log_error "Repository path not found: $repo"
-            rm -rf "$sandbox_dir"
+            rm -rf "$cage_dir"
             exit 1
         }
 
@@ -64,7 +60,7 @@ cage_create() {
             git -C "$repo" worktree add "$workspace_dir" -b "cage/$name" "${branch}" 2>/dev/null || \
             git -C "$repo" worktree add --detach "$workspace_dir" "${branch}" || {
                 log_error "Failed to create git worktree"
-                rm -rf "$sandbox_dir"
+                rm -rf "$cage_dir"
                 exit 1
             }
         else
@@ -76,58 +72,33 @@ cage_create() {
         mkdir -p "$workspace_dir"
     fi
 
-    # ---- Allocate unique ports ----
-    local pg_port nats_port nats_monitor_port redis_port
-    pg_port=$(cage_alloc_port 5432)
-    nats_port=$(cage_alloc_port 4222)
-    nats_monitor_port=$(cage_alloc_port 8222)
-    redis_port=$(cage_alloc_port 6379)
-
-    # ---- Write .env config ----
+    # Write .env config
     log_step "Writing configuration"
-    cat > "$sandbox_dir/.env" <<EOF
+    cat > "$cage_dir/.env" <<EOF
 # Micolash Cage: $name
 # Created: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
-SANDBOX_NAME=$name
-SANDBOX_ROOT=$sandbox_dir
-SANDBOX_WORKSPACE=$workspace_dir
-SANDBOX_PG_PORT=$pg_port
-SANDBOX_NATS_PORT=$nats_port
-SANDBOX_NATS_MONITOR_PORT=$nats_monitor_port
-SANDBOX_REDIS_PORT=$redis_port
-SANDBOX_INFRA_PROFILE=$infra_profile
+CAGE_NAME=$name
+CAGE_ROOT=$cage_dir
+CAGE_WORKSPACE=$workspace_dir
 EOF
 
-    [[ -n "$repo" ]] && echo "SANDBOX_REPO=$repo" >> "$sandbox_dir/.env"
-    [[ -n "$branch" ]] && echo "SANDBOX_BRANCH=$branch" >> "$sandbox_dir/.env"
+    [[ -n "$repo" ]] && echo "CAGE_REPO=$repo" >> "$cage_dir/.env"
+    [[ -n "$branch" ]] && echo "CAGE_BRANCH=$branch" >> "$cage_dir/.env"
 
-    # ---- Copy activate script ----
-    if [[ -f "$CAGE_ACTIVATE_TEMPLATE" ]]; then
-        cp "$CAGE_ACTIVATE_TEMPLATE" "$sandbox_dir/activate.sh"
-        chmod +x "$sandbox_dir/activate.sh"
-    fi
-
-    # ---- Start infrastructure ----
-    if [[ "$no_infra" == false ]]; then
-        log_step "Starting infrastructure (Postgres:$pg_port, NATS:$nats_port, Redis:$redis_port)"
-        cage_infra_up "$name"
-    fi
-
-    # ---- Done ----
     echo ""
     log_success "Cage '${BOLD}$name${NC}' created"
     echo ""
-    echo "  Enter (launches Claude Code with full permissions, jailed):"
+    echo "  Enter (Claude Code, full permissions, jailed):"
     echo "    cage enter $name"
     echo ""
-    echo "  Raw shell:"
+    echo "  Raw shell (jailed):"
     echo "    cage shell $name"
     echo ""
-    echo "  Run a command:"
+    echo "  Run a command (jailed):"
     echo "    cage exec $name -- <command>"
     echo ""
     [[ -n "$repo" ]] && echo "  Workspace: $workspace_dir"
-    echo "  Cage root: $sandbox_dir"
+    echo "  Cage root: $cage_dir"
 }
 
 # ============================================
@@ -142,9 +113,7 @@ cage_destroy() {
         force=true
         name="${2:-}"
     fi
-    if [[ "${2:-}" == "--force" || "${2:-}" == "-f" ]]; then
-        force=true
-    fi
+    [[ "${2:-}" == "--force" || "${2:-}" == "-f" ]] && force=true
 
     if [[ -z "$name" ]]; then
         log_error "Cage name is required"
@@ -152,9 +121,9 @@ cage_destroy() {
         exit 1
     fi
 
-    local sandbox_dir="$CAGE_SANDBOX_DIR/$name"
+    local cage_dir="$CAGE_SANDBOX_DIR/$name"
 
-    if [[ ! -d "$sandbox_dir" ]]; then
+    if [[ ! -d "$cage_dir" ]]; then
         log_error "Cage '$name' not found"
         exit 1
     fi
@@ -170,14 +139,11 @@ cage_destroy() {
 
     log_info "Destroying cage: $name"
 
-    # Stop infrastructure
-    cage_infra_down "$name" 2>/dev/null || true
-
-    # Remove git worktree if workspace is one
-    if [[ -f "$sandbox_dir/.env" ]]; then
-        source "$sandbox_dir/.env"
-        local workspace="${SANDBOX_WORKSPACE:-}"
-        local repo="${SANDBOX_REPO:-}"
+    # Remove git worktree if applicable
+    if [[ -f "$cage_dir/.env" ]]; then
+        source "$cage_dir/.env"
+        local workspace="${CAGE_WORKSPACE:-}"
+        local repo="${CAGE_REPO:-}"
 
         if [[ -n "$repo" && -n "$workspace" && -d "$workspace/.git" ]]; then
             log_step "Removing git worktree"
@@ -186,13 +152,13 @@ cage_destroy() {
     fi
 
     log_step "Removing cage directory"
-    rm -rf "$sandbox_dir"
+    rm -rf "$cage_dir"
 
     log_success "Cage '$name' destroyed"
 }
 
 # ============================================
-# ENTER (default = Claude Code agent in jail)
+# ENTER (default = Claude Code agent)
 # ============================================
 
 cage_enter() {
@@ -201,7 +167,7 @@ cage_enter() {
 
     if [[ -z "$name" ]]; then
         log_error "Cage name is required"
-        echo "Usage: cage enter <name> [claude args...]"
+        echo "Usage: cage enter <name>"
         exit 1
     fi
 
@@ -221,19 +187,17 @@ cage_shell() {
         exit 1
     fi
 
-    local sandbox_dir="$CAGE_SANDBOX_DIR/$name"
+    local cage_dir="$CAGE_SANDBOX_DIR/$name"
 
-    if [[ ! -d "$sandbox_dir" ]]; then
+    if [[ ! -d "$cage_dir" ]]; then
         log_error "Cage '$name' not found"
         exit 1
     fi
 
-    source "$sandbox_dir/.env"
-    local workspace="${SANDBOX_WORKSPACE:-$sandbox_dir/workspace}"
+    source "$cage_dir/.env"
 
-    log_info "Entering cage shell: ${BOLD}$name${NC} (jailed via sandbox-exec)"
-
-    jail_shell "$sandbox_dir" "$workspace"
+    log_info "Entering cage shell: ${BOLD}$name${NC} (jailed)"
+    jail_shell "$cage_dir" "$CAGE_WORKSPACE"
 }
 
 # ============================================
@@ -258,17 +222,15 @@ cage_exec() {
         exit 1
     fi
 
-    local sandbox_dir="$CAGE_SANDBOX_DIR/$name"
+    local cage_dir="$CAGE_SANDBOX_DIR/$name"
 
-    if [[ ! -d "$sandbox_dir" ]]; then
+    if [[ ! -d "$cage_dir" ]]; then
         log_error "Cage '$name' not found"
         exit 1
     fi
 
-    source "$sandbox_dir/.env"
-    local workspace="${SANDBOX_WORKSPACE:-$sandbox_dir/workspace}"
-
-    jail_exec "$sandbox_dir" "$workspace" "$*"
+    source "$cage_dir/.env"
+    jail_exec "$cage_dir" "$CAGE_WORKSPACE" "$*"
 }
 
 # ============================================
@@ -278,34 +240,26 @@ cage_exec() {
 cage_list() {
     if [[ ! -d "$CAGE_SANDBOX_DIR" ]] || [[ -z "$(ls -A "$CAGE_SANDBOX_DIR" 2>/dev/null)" ]]; then
         log_info "No cages found"
-        echo "Create one with: cage create <name>"
+        echo "  Create one with: cage create <name>"
         return 0
     fi
 
     echo ""
-    printf "  ${BOLD}%-20s %-10s %-40s${NC}\n" "NAME" "INFRA" "WORKSPACE"
-    printf "  %-20s %-10s %-40s\n" "----" "-----" "---------"
+    printf "  ${BOLD}%-20s %-40s${NC}\n" "NAME" "WORKSPACE"
+    printf "  %-20s %-40s\n" "----" "---------"
 
-    for sandbox_dir in "$CAGE_SANDBOX_DIR"/*/; do
-        [[ -d "$sandbox_dir" ]] || continue
+    for cage_dir in "$CAGE_SANDBOX_DIR"/*/; do
+        [[ -d "$cage_dir" ]] || continue
         local name
-        name="$(basename "$sandbox_dir")"
-        local infra_status="down"
+        name="$(basename "$cage_dir")"
         local workspace="-"
 
-        if [[ -f "$sandbox_dir/.env" ]]; then
-            source "$sandbox_dir/.env"
-            workspace="${SANDBOX_WORKSPACE:-$sandbox_dir/workspace}"
-
-            local project="cage-${name}"
-            if docker compose -p "$project" -f "$CAGE_COMPOSE_FILE" ps --status running 2>/dev/null | grep -q "running"; then
-                infra_status="${GREEN}up${NC}"
-            else
-                infra_status="${DIM}down${NC}"
-            fi
+        if [[ -f "$cage_dir/.env" ]]; then
+            source "$cage_dir/.env"
+            workspace="${CAGE_WORKSPACE:-$cage_dir/workspace}"
         fi
 
-        printf "  %-20s %-10b %-40s\n" "$name" "$infra_status" "$workspace"
+        printf "  %-20s %-40s\n" "$name" "$workspace"
     done
     echo ""
 }
@@ -322,31 +276,24 @@ cage_status() {
         return
     fi
 
-    local sandbox_dir="$CAGE_SANDBOX_DIR/$name"
+    local cage_dir="$CAGE_SANDBOX_DIR/$name"
 
-    if [[ ! -d "$sandbox_dir" ]]; then
+    if [[ ! -d "$cage_dir" ]]; then
         log_error "Cage '$name' not found"
         exit 1
     fi
 
-    source "$sandbox_dir/.env"
+    source "$cage_dir/.env"
 
     echo ""
     echo "  ${BOLD}Cage: $name${NC}"
-    echo "  Root:      $sandbox_dir"
-    echo "  Workspace: ${SANDBOX_WORKSPACE:-n/a}"
-    echo "  Repo:      ${SANDBOX_REPO:-n/a}"
-    echo "  Branch:    ${SANDBOX_BRANCH:-n/a}"
+    echo "  Root:      $cage_dir"
+    echo "  Workspace: ${CAGE_WORKSPACE:-n/a}"
+    echo "  Repo:      ${CAGE_REPO:-n/a}"
+    echo "  Branch:    ${CAGE_BRANCH:-n/a}"
     echo ""
-    echo "  ${BOLD}Infrastructure:${NC}"
-    echo "  PostgreSQL: localhost:${SANDBOX_PG_PORT:-5432}"
-    echo "  NATS:       localhost:${SANDBOX_NATS_PORT:-4222}"
-    echo "  Redis:      localhost:${SANDBOX_REDIS_PORT:-6379}"
-    echo ""
-
-    local project="cage-${name}"
-    echo "  ${BOLD}Services:${NC}"
-    docker compose -p "$project" -f "$CAGE_COMPOSE_FILE" ps 2>/dev/null || echo "  (not running)"
+    echo "  ${BOLD}Jail:${NC} macOS sandbox-exec (Seatbelt)"
+    echo "  Write access: $cage_dir, ${CAGE_WORKSPACE:-n/a}, /tmp"
     echo ""
 }
 
@@ -360,42 +307,38 @@ cage_help() {
   micolash cage — Jailed developer sandbox for autonomous AI agents
 
   Usage:
-    cage create <name> [options]       Create a new cage
-    cage destroy <name> [--force]      Destroy a cage and all its data
-    cage enter <name>                  Launch Claude Code agent (jailed, full permissions)
-    cage shell <name>                  Enter a raw bash shell (jailed)
-    cage exec <name> -- <cmd>          Run a single command (jailed)
-    cage agent <name> [options]        Launch Claude Code agent (same as enter)
-    cage list                          List all cages
-    cage status [<name>]               Show cage status and infrastructure
-    cage infra <up|down|restart> <name> Manage infrastructure services
-    cage setup                         Install cage to PATH
+    cage create <name> [options]    Create a new cage
+    cage destroy <name> [--force]   Destroy a cage and all its data
+    cage enter <name>               Launch Claude Code (jailed, full permissions)
+    cage shell <name>               Enter a raw bash shell (jailed)
+    cage exec <name> -- <cmd>       Run a single command (jailed)
+    cage list                       List all cages
+    cage status [<name>]            Show cage details
+    cage setup                      Install cage to PATH
 
   Create options:
     --repo, -r <path>       Mount a git repository as the workspace
     --branch, -b <branch>   Create a git worktree from this branch
-    --no-infra              Skip starting infrastructure (Postgres, NATS, Redis)
 
-  Agent options:
+  Agent options (enter/agent):
     --prompt, -p <prompt>   Run non-interactively with this prompt
     --print                 Non-interactive mode (output only)
 
   Examples:
-    cage create my-feature --repo ~/code/myapp --branch main
-    cage enter my-feature
-    cage agent my-feature --prompt "fix the failing tests"
-    cage shell my-feature
-    cage exec my-feature -- make test
-    cage destroy my-feature
+    cage create my-task --repo ~/code/myapp --branch main
+    cage enter my-task
+    cage enter my-task --prompt "fix the failing tests"
+    cage shell my-task
+    cage exec my-task -- make test
+    cage destroy my-task
 
   How it works:
-    The cage uses macOS sandbox-exec (Seatbelt) to jail all processes.
+    macOS sandbox-exec (Seatbelt) jails all processes inside the cage.
     File writes are restricted to the cage directory and workspace only.
     Reads, network, and process execution are fully unrestricted.
 
-    'cage enter' launches Claude Code with --dangerously-skip-permissions
-    inside the jail. The agent gets full autonomy but the OS enforces that
-    writes cannot escape the cage.
+    'cage enter' launches Claude Code with --dangerously-skip-permissions.
+    The agent gets full autonomy. The OS enforces that writes stay in the cage.
 
 EOF
 }

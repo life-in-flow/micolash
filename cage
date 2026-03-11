@@ -3,7 +3,7 @@
 #
 # Creates venv-style sandboxes with macOS Seatbelt (sandbox-exec) enforcement.
 # Processes inside the cage get full permissions but file writes are restricted
-# to the sandbox directory and workspace only.
+# to the cage directory and workspace only.
 #
 # Usage: cage <command> [args...]
 
@@ -25,7 +25,6 @@ CAGE_DIR="$(cd "$(dirname "$_cage_script")" && pwd)"
 
 source "$CAGE_DIR/lib/config.sh"
 source "$CAGE_DIR/lib/helpers.sh"
-source "$CAGE_DIR/lib/infra.sh"
 source "$CAGE_DIR/lib/jail.sh"
 source "$CAGE_DIR/lib/agent.sh"
 source "$CAGE_DIR/lib/sandbox.sh"
@@ -65,10 +64,6 @@ case "${1:-}" in
     status)
         shift
         cage_status "$@"
-        ;;
-    infra)
-        shift
-        cage_infra "$@"
         ;;
     setup)
         cage_setup

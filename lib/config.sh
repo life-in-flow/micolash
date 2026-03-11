@@ -1,21 +1,15 @@
-# cage configuration module
+# cage configuration
 
-# Resolve CAGE_DIR if not set (should be set by main script)
 CAGE_DIR="${CAGE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
-# State directory — all sandboxes live here
+# State directory — all cages live here
 CAGE_STATE_DIR="${CAGE_STATE_DIR:-$HOME/.micolash}"
-CAGE_SANDBOX_DIR="$CAGE_STATE_DIR/sandboxes"
+CAGE_SANDBOX_DIR="$CAGE_STATE_DIR/cages"
 
-# Seatbelt profile and compose file paths
+# Seatbelt profile
 CAGE_SB_PROFILE="$CAGE_DIR/sandbox/jail.sb"
-CAGE_COMPOSE_FILE="$CAGE_DIR/sandbox/docker-compose.yml"
-CAGE_ACTIVATE_TEMPLATE="$CAGE_DIR/sandbox/activate.sh"
 
-# ============================================
-# COLORS
-# ============================================
-
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
